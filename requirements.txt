@@ -6,7 +6,5 @@ requests
 pyarrow
 confluent-kafka
 scikit-learn
-hsml
 numpy
 matplotlib
-
