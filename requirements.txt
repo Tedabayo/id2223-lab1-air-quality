@@ -1,0 +1,6 @@
+hopsworks==4.2.*
+pandas
+xgboost
+joblib
+requests
+pyarrow
