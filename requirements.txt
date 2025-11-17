@@ -4,3 +4,4 @@ xgboost
 joblib
 requests
 pyarrow
+confluent-kafka
