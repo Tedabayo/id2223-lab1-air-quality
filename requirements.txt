@@ -8,3 +8,4 @@ confluent-kafka
 scikit-learn
 numpy
 matplotlib
+
