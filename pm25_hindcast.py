@@ -14,7 +14,7 @@ FEATURE_VIEW_VERSION = 1
 AIR_QUALITY_FG_NAME = "air_quality"
 AIR_QUALITY_FG_VERSION = 1
 
-MODEL_NAME = "air_quality_model"   # from your training logs
+MODEL_NAME = "air_quality_model"   # from the training logs
 MODEL_VERSION = None               # None = latest version
 
 
@@ -61,7 +61,7 @@ def main():
     print(f"\nReading Feature View '{FEATURE_VIEW_NAME}', version={FEATURE_VIEW_VERSION}...")
     fv = fs.get_feature_view(FEATURE_VIEW_NAME, version=FEATURE_VIEW_VERSION)
 
-    # In your setup, get_batch_data() returns a single DataFrame (features only)
+    
     X = fv.get_batch_data()
     print(f"Feature View rows: {len(X)}")
     print("Feature columns:", list(X.columns))
@@ -76,7 +76,7 @@ def main():
     X["date"] = pd.to_datetime(X["date"])
 
     # ---------------------------------------------------------
-    # 2. Read labels from air_quality Feature Group
+    # 2. Reading labels from air_quality Feature Group
     # ---------------------------------------------------------
     print(f"\nReading air quality Feature Group '{AIR_QUALITY_FG_NAME}', version={AIR_QUALITY_FG_VERSION}...")
     aq_fg = fs.get_feature_group(AIR_QUALITY_FG_NAME, version=AIR_QUALITY_FG_VERSION)
@@ -96,7 +96,7 @@ def main():
     aq_df["date"] = pd.to_datetime(aq_df["date"])
 
     # ---------------------------------------------------------
-    # 3. Merge features (X) with labels (air_quality pm2_5) on (city, date)
+    # 3. Merge features (X) with labels (air_quality pm2_5) on (city, date): LLM used 
     # ---------------------------------------------------------
     print("\nMerging features with actual pm2_5 labels on (city, date)...")
     merged = pd.merge(
@@ -123,7 +123,7 @@ def main():
     pipeline = load_model(project)
 
     # ---------------------------------------------------------
-    # 5. Prepare features for prediction
+    # 5. Preparing features for prediction, as exppected by the model; core of the assignment
     #    (mirror your training: drop non-feature columns)
     # ---------------------------------------------------------
     drop_cols = ["city", "date", "weather_date", "weather_city", "pm2_5"]
