@@ -38,6 +38,7 @@ AQ_CSV_PATH = "data/aqicn_pm25_stockholm_small.csv"
 
 
 
+
 # ---------------------------------------------------------------------
 # Hopsworks connection
 # ---------------------------------------------------------------------
@@ -87,7 +88,7 @@ def get_weather_features_for_date(input_date: date) -> pd.DataFrame:
         "end_date": date_str,
     }
 
-    resp = requests.get(base_url, params=params, timeout=10)
+    resp = requests.get(base_url, params=params, timeout=90)
     resp.raise_for_status()
     data = resp.json()
 
