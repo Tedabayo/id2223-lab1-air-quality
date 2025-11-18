@@ -15,6 +15,10 @@ from datetime import date, timedelta
 import pandas as pd
 import hopsworks
 import requests
+import time
+
+
+
 
 
 # ---------------------------------------------------------------------
@@ -252,6 +256,9 @@ def run_daily_feature_pipeline(num_days_backfill: int = 90):
     for d in dates_to_process:
         weather_rows.append(get_weather_features_for_date(d))
         air_quality_rows.append(get_air_quality_features_for_date(d))
+        # This pause prevents the API from getting overwhelmed and timing out.
+        time.sleep(1)
+
 
     weather_features_df = pd.concat(weather_rows, ignore_index=True)
     air_quality_features_df = pd.concat(air_quality_rows, ignore_index=True)
