@@ -68,14 +68,16 @@ def connect_to_feature_store():
 # ---------------------------------------------------------------------
 # REAL DATA FUNCTIONS — Open-Meteo + aqicn CSV
 # ---------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# REAL DATA FUNCTIONS — Open-Meteo + aqicn CSV
+# ---------------------------------------------------------------------
 def get_weather_features_for_date(input_date: date) -> pd.DataFrame:
     """
     Fetch daily weather features for a given date using the Open-Meteo API.
+    Includes robust retry logic for network stability.
     """
     base_url = "https://api.open-meteo.com/v1/forecast"
-
     date_str = input_date.isoformat()
-
     params = {
         "latitude": TARGET_LATITUDE,
         "longitude": TARGET_LONGITUDE,
@@ -92,9 +94,31 @@ def get_weather_features_for_date(input_date: date) -> pd.DataFrame:
         "end_date": date_str,
     }
 
-    resp = requests.get(base_url, params=params, timeout=90)
-    resp.raise_for_status()
+    # --- ADDED RETRY LOGIC (The definitive fix for GitHub timeouts) ---
+    max_retries = 5
+    delay_seconds = 5 # Initial delay
+
+    for attempt in range(max_retries):
+        try:
+            # Use the high 90 second timeout
+            resp = requests.get(base_url, params=params, timeout=90)
+            resp.raise_for_status()
+            # If successful, break the loop and proceed to data processing
+            break 
+        except requests.exceptions.ReadTimeout as e:
+            if attempt < max_retries - 1:
+                # Wait longer on each failure
+                print(f"[{date_str}] Timeout (Attempt {attempt + 1}). Retrying in {delay_seconds}s...")
+                time.sleep(delay_seconds)
+                delay_seconds *= 2 
+            else:
+                # If all attempts fail, raise the error
+                print(f"[{date_str}] Final attempt failed after {max_retries} retries.")
+                raise e
+    # --- END RETRY LOGIC ---
+
     data = resp.json()
+    # ... (rest of the data extraction is the same) ...
 
     daily = data.get("daily", {})
     if not daily or len(daily.get("time", [])) == 0:
@@ -110,7 +134,6 @@ def get_weather_features_for_date(input_date: date) -> pd.DataFrame:
         "city": TARGET_CITY_NAME,
         "date": pd.to_datetime(input_date),
         "wind_speed_max": wind_speed_max,
-        # 🔑 Cast to string to match Feature Group schema
         "wind_direction_dominant": str(wind_dir_dom),
         "wind_gusts_max": wind_gusts_max,
         "temperature_max": temperature_max,
