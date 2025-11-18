@@ -1,155 +1,157 @@
 """
-Batch Inference Pipeline for ID2223 Lab 1
+Batch Inference Pipeline for Air Quality Prediction (PM2.5) - Task 4
 
 This script:
-1. Connects to Hopsworks Feature Store and Model Registry
-2. Loads the 'air_quality_fv' Feature View
-3. Loads the latest 'air_quality_model' from the Model Registry
-4. Fetches recent feature data
-5. Runs batch predictions for pm2_5
-6. Creates a hindcast plot (true vs predicted if available) and saves it as a PNG
+1. Connects to Hopsworks (Model Registry and Feature Store).
+2. Downloads the latest trained model.
+3. Retrieves the latest weather forecast features (next 7 days).
+4. Predicts PM2.5 levels for the forecast period.
+5. Generates a dashboard plot (PNG) of the predictions.
 """
-
 import os
-from datetime import datetime, timedelta
-
-import hopsworks
 import joblib
+import hopsworks
 import pandas as pd
+import numpy as np
+import time
 import matplotlib.pyplot as plt
-
+import seaborn as sns
+from datetime import datetime, timedelta
 
 # ---------------------------------------------------------------------
 # CONFIGURATION
 # ---------------------------------------------------------------------
 FEATURE_VIEW_NAME = "air_quality_fv"
 FEATURE_VIEW_VERSION = 1
-
 MODEL_NAME = "air_quality_model"
-MODEL_VERSION = 3  #just for training
-
-
-# Number of past days to show in the hindcast
-HINDCAST_DAYS = 14
-
-# Where to save the dashboard PNG
-OUTPUT_DIR = "dashboards"
-OUTPUT_PNG_PATH = os.path.join(OUTPUT_DIR, "pm25_hindcast.png")
-
+MODEL_VERSION = 1
+TARGET_CITY_NAME = "stockholm"
+OUTPUT_DASHBOARD_PATH = "air_quality_dashboard.png"
+FORECAST_DAYS = 7 # Predict for the next 7 days
 
 # ---------------------------------------------------------------------
 # HOPSWORKS CONNECTION
 # ---------------------------------------------------------------------
 def connect_to_feature_store_and_registry():
-    """
-    Connect to Hopsworks using HOPSWORKS_API_KEY.
-    Returns (feature_store, model_registry, project).
-    """
+    """Connect to Hopsworks using the API key."""
     hopsworks_api_key = os.environ.get("HOPSWORKS_API_KEY")
     if not hopsworks_api_key:
-        raise RuntimeError(
-            "HOPSWORKS_API_KEY environment variable is not set.\n"
-            "→ In GitHub Actions: set it as a repository secret.\n"
-            "→ Locally: export HOPSWORKS_API_KEY='your-key-here'."
-        )
+        raise RuntimeError("HOPSWORKS_API_KEY environment variable is not set.")
 
+    # CRITICAL STABILITY FIX: Pause to prevent immediate Kafka timeout
+    print("Pausing briefly before Hopsworks login...")
+    time.sleep(2)
     project = hopsworks.login(api_key_value=hopsworks_api_key)
+    
+    # CRITICAL STABILITY FIX: Pause after login
+    print("Pausing for 5 seconds to stabilize Hopsworks connection...")
+    time.sleep(5)
+    
     feature_store = project.get_feature_store()
     model_registry = project.get_model_registry()
     return feature_store, model_registry, project
 
 
 # ---------------------------------------------------------------------
-# LOAD FEATURE VIEW & MODEL
+# DATA & MODEL RETRIEVAL
 # ---------------------------------------------------------------------
-def load_feature_view(feature_store):
-    """
-    Load the Feature View used for training.
-    """
-    feature_view = feature_store.get_feature_view(
-        name=FEATURE_VIEW_NAME,
-        version=FEATURE_VIEW_VERSION,
-    )
-    print(f" Loaded Feature View '{FEATURE_VIEW_NAME}', version {FEATURE_VIEW_VERSION}.")
-    return feature_view
-
-
-def load_registered_model(model_registry):
-    """
-    Load the latest / specified version of the 'air_quality_model'
-    from the Model Registry and return the trained sklearn Pipeline.
-    """
-    if MODEL_VERSION is not None:
-        model = model_registry.get_model(MODEL_NAME, version=MODEL_VERSION)
-    else:
-        model = model_registry.get_model(MODEL_NAME, version=None)  # latest
-
-    print(f" Loaded model '{MODEL_NAME}', version {model.version} from Model Registry.")
-
+def load_model(mr):
+    """Downloads and loads the latest registered model."""
+    print(f"Downloading model '{MODEL_NAME}', version {MODEL_VERSION}...")
+    
+    # 1. Download Model from Registry
+    model = mr.get_model(name=MODEL_NAME, version=MODEL_VERSION)
     model_dir = model.download()
-    model_file_path = os.path.join(model_dir, "xgboost_pipeline.pkl")
-    trained_pipeline = joblib.load(model_file_path)
-
+    
+    # 2. Load the pipeline object using joblib
+    model_path = os.path.join(model_dir, "xgboost_pipeline.pkl")
+    trained_pipeline = joblib.load(model_path)
+    
+    print("Model loaded successfully.")
     return trained_pipeline
 
 
-# ---------------------------------------------------------------------
-# BATCH DATA + HINDCAST
-# ---------------------------------------------------------------------
-def get_recent_batch_data(feature_view) -> pd.DataFrame:
+def get_forecast_features(fs):
     """
-    Fetch recent feature data from the Feature View for hindcast evaluation.
+    Retrieves the future weather features for prediction from the Feature View.
+    We assume the daily feature pipeline has already pushed the 7-day forecast.
     """
-    end_time = datetime.utcnow()
-    start_time = end_time - timedelta(days=HINDCAST_DAYS)
+    print(f"Retrieving forecast features from Feature View {FEATURE_VIEW_NAME}...")
+    
+    # Calculate the time range needed: from tomorrow to 7 days from now (inclusive)
+    # NOTE: We assume the feature pipeline pushed the forecast data for the next 7 days.
+    today = pd.Timestamp(datetime.now().date())
+    start_time = today.isoformat()
+    end_time = (today + timedelta(days=FORECAST_DAYS)).isoformat() # +7 days for a 7-day forecast including today
 
-    print(f" Fetching batch data from Feature View between {start_time} and {end_time}...")
-
-    batch_df = feature_view.get_batch_data(start_time=start_time, end_time=end_time)
-
-    print(f"   Retrieved {len(batch_df)} rows for hindcast.")
-    print("   Batch columns:", list(batch_df.columns))
-    return batch_df
-
-
-def create_hindcast_plot(hindcast_df: pd.DataFrame, output_path: str):
-    """
-    Create and save a hindcast plot.
-
-    If true pm2_5 values are available (column 'pm2_5' in hindcast_df),
-    we plot both true and predicted.
-    Otherwise, we plot only predictions.
-    """
-    if "date" not in hindcast_df.columns:
-        raise ValueError("Expected a 'date' column in hindcast_df.")
-
-    sorted_df = hindcast_df.sort_values("date")
-
-    plt.figure(figsize=(10, 5))
-
-    # Plot true values only if they exist
-    if "pm2_5" in sorted_df.columns:
-        plt.plot(sorted_df["date"], sorted_df["pm2_5"], label="True pm2_5")
-
-    # Always plot predictions
-    plt.plot(
-        sorted_df["date"],
-        sorted_df["pm2_5_pred"],
-        label="Predicted pm2_5",
-        linestyle="--",
+    fv = fs.get_feature_view(name=FEATURE_VIEW_NAME, version=FEATURE_VIEW_VERSION)
+    
+    # Get batch data for the forecast time range
+    feature_vector_df = fv.get_batch_data(
+        start_time=start_time,
+        end_time=end_time,
+        excluded_labels=True # Only retrieve features, no labels needed for forecast
     )
 
-    plt.xlabel("Date")
-    plt.ylabel("pm2_5")
-    plt.title("PM2.5 Hindcast (True vs Predicted / Predicted only)")
-    plt.legend()
+    if feature_vector_df.empty:
+        raise RuntimeError(
+            "No forecast features found in Feature View for the next 7 days. "
+            "Ensure the feature pipeline pushed the 7-day forecast."
+        )
+
+    # The model expects specific features based on how it was trained (Batch 3)
+    feature_columns = [
+        "weather_wind_speed_max",
+        "weather_wind_direction_dominant",
+        "weather_wind_gusts_max",
+        "weather_temperature_max",
+    ]
+    
+    forecast_dates = feature_vector_df["date"].copy()
+    
+    # Select only the features the model needs (replicating the feature set from the training pipeline)
+    X_forecast = feature_vector_df.loc[:, feature_columns]
+    
+    print(f"Retrieved {len(X_forecast)} forecast days.")
+    return X_forecast, forecast_dates
+
+
+# ---------------------------------------------------------------------
+# VISUALIZATION (Dashboard Generation)
+# ---------------------------------------------------------------------
+def generate_dashboard(predictions, dates):
+    """
+    Plots the predicted PM2.5 levels for the forecast period and saves it as a PNG.
+    """
+    sns.set_style("whitegrid")
+    
+    plt.figure(figsize=(12, 6))
+    
+    # Plot the PM2.5 Predictions
+    plt.plot(dates, predictions, marker='o', linestyle='-', color='indigo', label='Predicted PM2.5')
+    
+    # Add Air Quality Index (AQI) thresholds as horizontal regions
+    # Good: 0-49 (Green background)
+    plt.axhspan(0, 50, color='green', alpha=0.1, label='Good (0-49)')
+    # Moderate: 50-99 (Yellow background)
+    plt.axhspan(50, 100, color='yellow', alpha=0.1, label='Moderate (50-99)')
+    # Unhealthy for Some: 100-149 (Red background)
+    plt.axhspan(100, 150, color='red', alpha=0.1, label='Unhealthy (100-149)')
+
+    
+    plt.title(f"PM2.5 Forecast for {TARGET_CITY_NAME} (Next {FORECAST_DAYS} Days)", fontsize=16)
+    plt.xlabel("Date", fontsize=12)
+    plt.ylabel("PM2.5 Concentration", fontsize=12)
+    plt.xticks(rotation=45, ha='right')
+    plt.legend(loc='upper left')
+    
+    # Ensure y-axis covers the typical AQI range for clarity
+    max_pred = predictions.max() if not predictions.empty else 50
+    plt.ylim(0, max(150, max_pred * 1.2))
+
     plt.tight_layout()
-
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    plt.savefig(output_path)
-    plt.close()
-
-    print(f" Hindcast plot saved to: {output_path}")
+    plt.savefig(OUTPUT_DASHBOARD_PATH)
+    print(f"\n Dashboard saved successfully to {OUTPUT_DASHBOARD_PATH}")
 
 
 # ---------------------------------------------------------------------
@@ -157,81 +159,35 @@ def create_hindcast_plot(hindcast_df: pd.DataFrame, output_path: str):
 # ---------------------------------------------------------------------
 def run_batch_inference_pipeline():
     """
-    1. Connect to Hopsworks
-    2. Load Feature View and model
-    3. Fetch recent batch data
-    4. Run predictions
-    5. Build hindcast DataFrame
-    6. Generate dashboard PNG
+    Executes the entire batch inference process.
     """
-    (
-        feature_store,
-        model_registry,
-        project,
-    ) = connect_to_feature_store_and_registry()
+    print("Starting batch inference pipeline...")
+    try:
+        # 1. Connect to Hopsworks
+        feature_store, model_registry, project = connect_to_feature_store_and_registry()
+        
+        # 2. Load Model
+        trained_pipeline = load_model(model_registry)
+        
+        # 3. Get Forecast Features
+        X_forecast, forecast_dates = get_forecast_features(feature_store)
+        
+        # 4. Predict
+        print(f"Making {len(X_forecast)} predictions...")
+        # The model pipeline handles preprocessing (OneHotEncoding) automatically
+        predictions = trained_pipeline.predict(X_forecast)
+        
+        # 5. Generate Dashboard
+        predictions_series = pd.Series(predictions, index=forecast_dates)
+        generate_dashboard(predictions_series, forecast_dates)
+        
+        print("\n Batch Inference Pipeline completed successfully.\n")
 
-    feature_view = load_feature_view(feature_store)
-    trained_pipeline = load_registered_model(model_registry)
-
-    batch_df = get_recent_batch_data(feature_view)
-
-    if batch_df.empty:
-        print(
-            "⚠️ No data available for the selected hindcast window. "
-            "Make sure your feature pipeline has inserted enough days."
-        )
-        return
-
-    # Try to detect a pm2_5 label column automatically.
-    # In some setups it might be called 'pm2_5', in others 'air_quality_pm2_5', etc.
-    pm_cols = [c for c in batch_df.columns if "pm2_5" in c]
-    label_col = pm_cols[0] if pm_cols else None
-
-    if label_col is None:
-        print(
-            "⚠️ No 'pm2_5' label column found in batch_df – will only plot predictions.\n"
-            f"    Available columns: {list(batch_df.columns)}"
-        )
-    else:
-        print(f"   Using label column: {label_col}")
-
-    # Use similar feature logic as training: drop non-feature columns.
-    # These were problematic or not used as numeric features.
-    drop_columns = ["city", "date", "weather_date"]
-    if label_col is not None:
-        drop_columns.append(label_col)
-
-    feature_columns = [col for col in batch_df.columns if col not in drop_columns]
-
-    print("   Feature columns used for prediction:", feature_columns)
-
-    X_batch = batch_df[feature_columns]
-
-    print("\n🚀 Running batch predictions...")
-    y_pred = trained_pipeline.predict(X_batch)
-
-    # Build hindcast dataframe for visualization
-    if "date" not in batch_df.columns:
-        raise ValueError("Expected 'date' column in batch_df.")
-
-    hindcast_df = batch_df[["date"]].copy()
-    hindcast_df["pm2_5_pred"] = y_pred
-
-    if label_col is not None:
-        # Rename the label column nicely to 'pm2_5' for plotting
-        hindcast_df["pm2_5"] = batch_df[label_col].values
-
-    print("\n Sample of hindcast results:")
-    print(hindcast_df.tail())
-
-    # Create hindcast plot (dashboard PNG)
-    create_hindcast_plot(hindcast_df, OUTPUT_PNG_PATH)
-
-    print("\n Batch inference pipeline completed successfully.")
+    except RuntimeError as e:
+        print(f"Pipeline failed due to configuration or data error: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred during inference: {e}")
 
 
-# ---------------------------------------------------------------------
-# ENTRY POINT
-# ---------------------------------------------------------------------
 if __name__ == "__main__":
     run_batch_inference_pipeline()
