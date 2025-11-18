@@ -33,20 +33,23 @@ FORECAST_DAYS = 7 # Predict for the next 7 days
 # HOPSWORKS CONNECTION
 # ---------------------------------------------------------------------
 def connect_to_feature_store_and_registry():
-    """Connect to Hopsworks using the API key."""
-    hopsworks_api_key = os.environ.get("HOPSWORKS_API_KEY")
+    """
+    Connect to Hopsworks using the HOPSWORKS_API_KEY environment variable.
+    Returns:
+        feature_store, model_registry, project
+    """
+    hopsworks_api_key = os.environ.get("HOPSWORKS_API_KEY") # READ FROM ENVIRONMENT
     if not hopsworks_api_key:
-        raise RuntimeError("HOPSWORKS_API_KEY environment variable is not set.")
-
+        raise RuntimeError(
+            "HOPSWORKS_API_KEY environment variable is not set.\n"
+            "→ In GitHub Actions: set it as a repository secret.\n"
+            "→ Locally: export HOPSWORKS_API_KEY='your-key-here'."
+        )
+    
     # CRITICAL STABILITY FIX: Pause to prevent immediate Kafka timeout
     print("Pausing briefly before Hopsworks login...")
     time.sleep(2)
     project = hopsworks.login(api_key_value=hopsworks_api_key)
-    
-    # CRITICAL STABILITY FIX: Pause after login
-    print("Pausing for 5 seconds to stabilize Hopsworks connection...")
-    time.sleep(5)
-    
     feature_store = project.get_feature_store()
     model_registry = project.get_model_registry()
     return feature_store, model_registry, project
@@ -167,20 +170,25 @@ def generate_dashboard(predictions, dates):
 def run_batch_inference_pipeline():
     """
     Executes the entire batch inference process.
+    CRITICAL FIX: Adds a 20-second wait time to ensure forecast data is materialized.
     """
-    print("Starting batch inference pipeline...")
     try:
         # 1. Connect to Hopsworks
         feature_store, model_registry, project = connect_to_feature_store_and_registry()
+        
+        # CRITICAL STABILITY FIX: Wait for 20 seconds
+        print("Pausing for 20 seconds to allow forecast data to materialize fully in the Feature View...")
+        time.sleep(20)
         
         # 2. Load Model
         trained_pipeline = load_model(model_registry)
         
         # 3. Get Forecast Features
+        # This will use the new time logic (tomorrow's date, extended end boundary)
         X_forecast, forecast_dates = get_forecast_features(feature_store)
         
         # 4. Predict
-        print(f"Making {len(X_forecast)} predictions...")
+        print("Making predictions...")
         # The model pipeline handles preprocessing (OneHotEncoding) automatically
         predictions = trained_pipeline.predict(X_forecast)
         
@@ -194,7 +202,3 @@ def run_batch_inference_pipeline():
         print(f"Pipeline failed due to configuration or data error: {e}")
     except Exception as e:
         print(f"An unexpected error occurred during inference: {e}")
-
-
-if __name__ == "__main__":
-    run_batch_inference_pipeline()
