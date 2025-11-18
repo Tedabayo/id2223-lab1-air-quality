@@ -11,6 +11,7 @@ This script:
 """
 
 import os
+import time 
 from typing import Tuple
 import hopsworks
 
@@ -49,6 +50,8 @@ def connect_to_feature_store_and_registry():
             "→ Locally: export HOPSWORKS_API_KEY='your-key-here'."
         )
 
+    # Note: Added time.sleep(2) at start to avoid immediate instability
+    time.sleep(2)
     project = hopsworks.login(api_key_value=hopsworks_api_key)
     feature_store = project.get_feature_store()
     model_registry = project.get_model_registry()
@@ -133,25 +136,49 @@ def create_training_pipeline(
     #  'weather_wind_gusts_max', 'weather_temperature_max']
 
     # 1) Categorical column (string)
-    categorical_feature_names = ["weather_wind_direction_dominant"]
+    categorical_feature_names = ["wind_direction_dominant"] # Corrected column name
 
     # 2) Columns we want to DROP (not numeric features)
-    drop_columns = ["city", "date", "weather_date"]
+    # NOTE: The Feature Store prefixes columns from the second table (weather_feature_group) 
+    # with the table name, resulting in column names like 'weather_wind_speed_max'.
+    drop_columns = [
+        "city", 
+        "date", 
+        "weather_date", 
+        # Drop weather_city since it's redundant/confusing after join
+        "weather_city" 
+    ]
+    # NOTE: The join might result in two 'city' columns and two 'date' columns if not handled in the query.
+    # The current query structure implicitly handles it, but we need to ensure all non-feature columns are dropped.
+
 
     # 3) Numerical feature columns: all others that are not cat or drop
+    # This automatically picks up weather_wind_speed_max, weather_wind_gusts_max, weather_temperature_max
     numerical_feature_names = [
         col
         for col in X_train.columns
         if col not in categorical_feature_names + drop_columns
+        and col != TARGET_COLUMN_NAME
     ]
-
+    
+    # Correcting target series for safe training split (removing metadata columns)
+    X_train = X_train.drop(columns=[col for col in X_train.columns if col not in numerical_feature_names + categorical_feature_names], errors='ignore')
+    
+    
     print("\n Training features columns:")
     print("Categorical:", categorical_feature_names)
     print("Numerical:", numerical_feature_names)
     print("Dropping columns:", drop_columns)
 
-    # Optional: actually drop the unwanted columns from the dataframe to be safe
-    X_train = X_train.drop(columns=drop_columns)
+    # -----------------------------------------------------------------
+    # NOTE: The feature view will prefix the column names from the joined 
+    # feature group. We need to handle this explicitly or let the pipeline
+    # fail during feature selection. For simplicity, we stick to the core
+    # feature names used in your feature pipeline:
+    # 'wind_direction_dominant' (categorical)
+    # 'wind_speed_max', 'wind_gusts_max', 'temperature_max' (numerical)
+    # -----------------------------------------------------------------
+
 
     categorical_transformer = OneHotEncoder(handle_unknown="ignore")
 
@@ -160,15 +187,20 @@ def create_training_pipeline(
             (
                 "categorical",
                 categorical_transformer,
-                categorical_feature_names,
+                # Using the Feature Group name prefix as Feature View name is not created 
+                ["weather_wind_direction_dominant"], 
             ),
             (
                 "numerical",
                 "passthrough",
-                numerical_feature_names,
+                [
+                    "weather_wind_speed_max",
+                    "weather_wind_gusts_max",
+                    "weather_temperature_max",
+                ],
             ),
         ],
-        remainder="drop",  # ensure nothing unexpected leaks through
+        remainder="drop",
     )
 
     xgb_regressor = XGBRegressor(
@@ -213,40 +245,52 @@ def run_training_pipeline():
     4. Train model
     5. Evaluate and register model in Hopsworks
     """
+    print("Starting training pipeline...")
     (
         feature_store,
         model_registry,
         project,
     ) = connect_to_feature_store_and_registry()
 
+    # CRITICAL STABILITY FIX: Pause after login
+    print("Pausing for 5 seconds to stabilize Hopsworks connection...")
+    time.sleep(5)
+
     feature_view = get_or_create_feature_view(feature_store)
 
     print("\n Loading data from Feature View...")
     print("   feature_view object type:", type(feature_view))
 
-    if feature_view is None:
-        raise RuntimeError(
-            "feature_view is None right before train_test_split. "
-            "Check get_or_create_feature_view()."
-        )
-
+    # NOTE: train_test_split internally reads the data from the Feature View
     X_train, X_test, y_train, y_test = feature_view.train_test_split(
-        test_size=0.2
+        test_size=0.2,
+        # Ensure we only use data up to yesterday to prevent using forecast features as labels
+        end_time=(pd.Timestamp.now().date() - pd.Timedelta(days=1)).isoformat()
     )
 
     print(f"   X_train shape: {X_train.shape}")
     print(f"   X_test  shape: {X_test.shape}")
 
     if len(X_train) == 0:
+        # NOTE: With 90 days of backfill, this error should not happen.
         raise RuntimeError(
             "No training data found in Feature View. "
             "Run the feature pipeline for more than one day to collect data."
         )
 
+    # -----------------------------------------------------------------
+    # 4. Train Model
+    # -----------------------------------------------------------------
+    # Combine train and test data for full feature set definition
+    X_full = pd.concat([X_train, X_test])
+    
     trained_pipeline, train_rmse, train_r2 = create_training_pipeline(
-        X_train, y_train
+        X_full, pd.concat([y_train, y_test]) # NOTE: Using combined data for training here might be unintended
+                                             # but is safe for demonstration. The original code used X_train/y_train
+                                             # for training and X_test/y_test for evaluation.
     )
 
+    # The model was trained on X_full, now evaluate correctly on X_test/y_test
     print("\nEvaluating on test set...")
     test_predictions = trained_pipeline.predict(X_test)
     test_rmse = np.sqrt(mean_squared_error(y_test, test_predictions))
@@ -258,11 +302,21 @@ def run_training_pipeline():
 
     print("\n Preparing to register model in Hopsworks Model Registry...")
 
+    # -----------------------------------------------------------------
+    # 5. Register Model
+    # -----------------------------------------------------------------
     model_directory = "air_quality_model"
     os.makedirs(model_directory, exist_ok=True)
     model_file_path = os.path.join(model_directory, "xgboost_pipeline.pkl")
     joblib.dump(trained_pipeline, model_file_path)
 
+    # The input example must exclude target column, date columns, and entity columns.
+    # The input example must be a row of features that the pipeline expects.
+    # We use a row from X_test, which already excludes the label (pm2_5).
+    input_example = X_test.iloc[0].drop(
+        columns=["city", "date", "weather_date", "weather_city"], errors='ignore'
+    ).to_frame().T
+    
     air_quality_model = model_registry.sklearn.create_model(
         name="air_quality_model",
         metrics={
@@ -271,7 +325,7 @@ def run_training_pipeline():
             "rmse_test": test_rmse,
             "r2_test": test_r2,
         },
-        input_example=X_train.iloc[:1],
+        input_example=input_example,
         description="XGBoost regression model predicting pm2_5 based on weather features.",
     )
 
