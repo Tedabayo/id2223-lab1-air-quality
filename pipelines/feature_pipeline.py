@@ -34,7 +34,8 @@ TARGET_TIMEZONE = "UTC"                 # used for Open-Meteo
 #   Date,Country,City,Specie,count,min,max,median,variance
 #
 # We will convert it to a simple [date, pm2_5] format inside load_air_quality_csv().
-AQ_CSV_PATH = "data/aqicn_pm25_stockholm.csv"
+AQ_CSV_PATH = "data/aqicn_pm25_stockholm_small.csv"
+
 
 
 # ---------------------------------------------------------------------
@@ -141,7 +142,7 @@ def load_air_quality_csv() -> pd.DataFrame:
         if not os.path.exists(AQ_CSV_PATH):
             raise FileNotFoundError(
                 f"AQ CSV file not found at {AQ_CSV_PATH}. "
-                f"Place your aqicn CSV there or update AQ_CSV_PATH."
+                f"Place your aqicn CSV under resources/ or update AQ_CSV_PATH."
             )
 
         # Read raw CSV, skipping comment lines at the top
@@ -308,4 +309,3 @@ def run_daily_feature_pipeline(num_days_backfill: int = 90):
 if __name__ == "__main__":
     # You can change the number of days here if you want
     run_daily_feature_pipeline(num_days_backfill=90)
-
