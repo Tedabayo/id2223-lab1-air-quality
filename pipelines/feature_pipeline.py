@@ -96,12 +96,12 @@ def get_weather_features_for_date(input_date: date) -> pd.DataFrame:
 
     # --- ADDED RETRY LOGIC (The definitive fix for GitHub timeouts) ---
     max_retries = 5
-    delay_seconds = 5 # Initial delay
+    delay_seconds = 1 # Initial delay
 
     for attempt in range(max_retries):
         try:
             # Use the high 90 second timeout
-            resp = requests.get(base_url, params=params, timeout=90)
+            resp = requests.get(base_url, params=params, timeout=10)
             resp.raise_for_status()
             # If successful, break the loop and proceed to data processing
             break 
@@ -300,6 +300,8 @@ def run_daily_feature_pipeline(num_days_backfill: int = 90):
 
     # Connect to Hopsworks Feature Store
     feature_store = connect_to_feature_store()
+    print("Pausing for 5 seconds to stabilize Hopsworks connection...")
+    time.sleep(5)
 
     # Create or get Feature Groups
     weather_feature_group = feature_store.get_or_create_feature_group(
