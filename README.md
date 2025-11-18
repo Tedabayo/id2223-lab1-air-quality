@@ -1,15 +1,26 @@
 # KTH ID2223 Lab 1 — Air Quality Prediction
 
-This project builds an end-to-end pipeline for predicting PM2.5 using Hopsworks Feature Store and GitHub Actions.
-Files include feature pipeline, training pipeline, and batch inference pipeline, all running automatically.
+This project predicts PM2.5 using weather data and the Hopsworks Feature Store.
 
-The model (XGBoost) is trained using a Feature View that joins weather and air quality data.
-A hindcast script (`pm25_hindcast.py`) evaluates the model on historical data and saves the plot in `dashboards/`. Much of this is not totally understood as i use LLM for help and understanding
+## Feature Pipelines
+- Backfill pipeline loads historical PM2.5 and weather data into Hopsworks.
+- Daily pipeline loads yesterday’s data and 7-day weather forecast.
 
-## To run locally:
+## Training Pipeline
+Creates a Feature View, splits data, trains an XGBoost model, and saves it to the Hopsworks Model Registry.
 
-```bash
+## Batch Inference Pipeline
+Loads the model and predicts PM2.5 for the coming days.
+Saves a dashboard plot here:
+dashboards/pm25_hindcast.png
+
+## Hindcast Evaluation
+pm25_hindcast.py compares predicted vs actual PM2.5 and saves a graph.
+
+## Running Locally
 pip install -r requirements.txt
+export HOPSWORKS_API_KEY=your_key
 python3 pm25_hindcast.py
-```
 
+## Repository Link
+https://github.com/Tedabayo/id2223-lab1-air-quality
