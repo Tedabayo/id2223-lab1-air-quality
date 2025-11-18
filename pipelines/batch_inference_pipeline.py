@@ -26,7 +26,8 @@ FEATURE_VIEW_NAME = "air_quality_fv"
 FEATURE_VIEW_VERSION = 1
 
 MODEL_NAME = "air_quality_model"
-MODEL_VERSION = None  # use latest if None
+MODEL_VERSION = 3  #just for training
+
 
 # Number of past days to show in the hindcast
 HINDCAST_DAYS = 14
