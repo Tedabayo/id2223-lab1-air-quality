@@ -218,7 +218,7 @@ def get_air_quality_features_for_date(input_date: date) -> pd.DataFrame:
 # ---------------------------------------------------------------------
 # MAIN PIPELINE LOGIC
 # ---------------------------------------------------------------------
-def run_daily_feature_pipeline(num_days_backfill: int = 30):
+def run_daily_feature_pipeline(num_days_backfill: int = 90):
     """
     Main function for the daily feature pipeline.
 
@@ -307,5 +307,5 @@ def run_daily_feature_pipeline(num_days_backfill: int = 30):
 # ---------------------------------------------------------------------
 if __name__ == "__main__":
     # You can change the number of days here if you want
-    run_daily_feature_pipeline(num_days_backfill=30)
+    run_daily_feature_pipeline(num_days_backfill=90)
 
