@@ -50,7 +50,7 @@ def connect_to_feature_store_and_registry():
             "→ Locally: export HOPSWORKS_API_KEY='your-key-here'."
         )
 
-    # Note: Added time.sleep(2) at start to avoid immediate instability
+    # Note: Added time.sleep(2) at start to avoid immediate instability: this was suggested by LLM
     time.sleep(2)
     project = hopsworks.login(api_key_value=hopsworks_api_key)
     feature_store = project.get_feature_store()
@@ -116,7 +116,7 @@ def get_or_create_feature_view(feature_store):
 
 
 # ---------------------------------------------------------------------
-# MODEL TRAINING
+# MODEL TRAINING: done with the help of LLM. 
 # ---------------------------------------------------------------------
 def create_training_pipeline(
     feature_dataframe: pd.DataFrame, target_series: pd.Series
@@ -252,7 +252,7 @@ def run_training_pipeline():
         project,
     ) = connect_to_feature_store_and_registry()
 
-    # CRITICAL STABILITY FIX: Pause after login
+    # CRITICAL STABILITY FIX: Pause after login # had to add it as LLM suggested because of crashing ISSUES. 
     print("Pausing for 5 seconds to stabilize Hopsworks connection...")
     time.sleep(5)
 
@@ -310,9 +310,7 @@ def run_training_pipeline():
     model_file_path = os.path.join(model_directory, "xgboost_pipeline.pkl")
     joblib.dump(trained_pipeline, model_file_path)
 
-    # The input example must exclude target column, date columns, and entity columns.
-    # The input example must be a row of features that the pipeline expects.
-    # We use a row from X_test, which already excludes the label (pm2_5).
+   
     input_example = X_test.iloc[0].drop(
         columns=["city", "date", "weather_date", "weather_city"], errors='ignore'
     ).to_frame().T

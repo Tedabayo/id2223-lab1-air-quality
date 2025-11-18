@@ -27,7 +27,7 @@ MODEL_NAME = "air_quality_model"
 MODEL_VERSION = 1
 TARGET_CITY_NAME = "stockholm"
 OUTPUT_DASHBOARD_PATH = "air_quality_dashboard.png"
-FORECAST_DAYS = 7 # Predict for the next 7 days
+FORECAST_DAYS = 7 
 
 # ---------------------------------------------------------------------
 # HOPSWORKS CONNECTION
@@ -38,7 +38,7 @@ def connect_to_feature_store_and_registry():
     Returns:
         feature_store, model_registry, project
     """
-    hopsworks_api_key = os.environ.get("HOPSWORKS_API_KEY") # READ FROM ENVIRONMENT
+    hopsworks_api_key = os.environ.get("HOPSWORKS_API_KEY") # READING THE FROM ENVIRONMENT
     if not hopsworks_api_key:
         raise RuntimeError(
             "HOPSWORKS_API_KEY environment variable is not set.\n"
@@ -46,7 +46,7 @@ def connect_to_feature_store_and_registry():
             "→ Locally: export HOPSWORKS_API_KEY='your-key-here'."
         )
     
-    # CRITICAL STABILITY FIX: Pause to prevent immediate Kafka timeout
+    # CRITICAL STABILITY FIX: Pause to prevent immediate Kafka timeout: USE LLM FOR HELP, WAS CRASHING ALL THE TIME
     print("Pausing briefly before Hopsworks login...")
     time.sleep(2)
     project = hopsworks.login(api_key_value=hopsworks_api_key)
@@ -62,7 +62,7 @@ def load_model(mr):
     """Downloads and loads the latest registered model."""
     print(f"Downloading model '{MODEL_NAME}', version {MODEL_VERSION}...")
     
-    # 1. Download Model from Registry
+    # 1. Downloading Model from Registry
     model = mr.get_model(name=MODEL_NAME, version=MODEL_VERSION)
     model_dir = model.download()
     
@@ -72,7 +72,7 @@ def load_model(mr):
     
     print("Model loaded successfully.")
     return trained_pipeline
-# this is AI generated as i could noit get it to work properly. 
+# this code below  is AI generated as i could not  get it to work properly. 
 def get_forecast_features(fs):
     """
     Retrieves the future weather features for prediction from the Feature View.
@@ -137,10 +137,10 @@ def generate_dashboard(predictions, dates):
     
     plt.figure(figsize=(12, 6))
     
-    # Plot the PM2.5 Predictions
+    # Ploting the PM2.5 Predictions
     plt.plot(dates, predictions, marker='o', linestyle='-', color='indigo', label='Predicted PM2.5')
     
-    # Add Air Quality Index (AQI) thresholds as horizontal regions
+    # Adding Air Quality Index (AQI) thresholds as horizontal regions
     # Good: 0-49 (Green background)
     plt.axhspan(0, 50, color='green', alpha=0.1, label='Good (0-49)')
     # Moderate: 50-99 (Yellow background)
@@ -155,7 +155,7 @@ def generate_dashboard(predictions, dates):
     plt.xticks(rotation=45, ha='right')
     plt.legend(loc='upper left')
     
-    # Ensure y-axis covers the typical AQI range for clarity
+    # Ensure y-axis covers the typical AQI range for clarity: had to google it to help the model
     max_pred = predictions.max() if not predictions.empty else 50
     plt.ylim(0, max(150, max_pred * 1.2))
 
@@ -165,7 +165,7 @@ def generate_dashboard(predictions, dates):
 
 
 # ---------------------------------------------------------------------
-# MAIN BATCH INFERENCE PIPELINE
+# MAIN BATCH INFERENCE PIPELINE: had to fix it with the help of LLM as it was crashing all the time
 # ---------------------------------------------------------------------
 def run_batch_inference_pipeline():
     """

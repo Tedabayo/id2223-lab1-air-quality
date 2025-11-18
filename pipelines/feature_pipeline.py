@@ -19,13 +19,13 @@ import requests
 # ---------------------------------------------------------------------
 # CONFIGURATION
 # ---------------------------------------------------------------------
-TARGET_CITY_NAME = "stockholm"          # example: "stockholm"
+TARGET_CITY_NAME = "stockholm"          # I use stockholm
 TARGET_LATITUDE = 59.3293
 TARGET_LONGITUDE = 18.0686
 TARGET_SENSOR_ID = "your_sensor_id"     
 TARGET_TIMEZONE = "UTC"                 
 AQ_CSV_PATH = "data/aqicn_pm25_stockholm_small.csv"
-FORECAST_DAYS = 7 # Number of days to fetch forecast for
+FORECAST_DAYS = 7 # cna be changed to adjust forecast horizon
 
 
 # ---------------------------------------------------------------------
@@ -37,7 +37,7 @@ def connect_to_feature_store():
     if not hopsworks_api_key:
         raise RuntimeError("HOPSWORKS_API_KEY environment variable is not set.")
 
-    # Stability fix: Wait before connecting
+    # Stability fix: Wait before connecting: had to use LLM to find this. 
     time.sleep(2)
     project = hopsworks.login(api_key_value=hopsworks_api_key)
     feature_store = project.get_feature_store()
@@ -70,7 +70,7 @@ def get_weather_features_for_range(start_date: date, end_date: date) -> pd.DataF
         "end_date": end_date.isoformat(),
     }
 
-    # --- RETRY LOGIC (Max stability for GitHub Actions) ---
+    # --- RETRY LOGIC (Max stability for GitHub Actions): also had to use LLM for stability ---
     max_retries = 10
     delay_seconds = 10 
 
@@ -166,15 +166,15 @@ def run_daily_feature_pipeline(num_days_backfill: int = 3):
     """
     today_date = date.today()
 
-    # 1. DEFINE HISTORICAL DATES
-    # Historical dates: yesterday, day before yesterday, etc.
+    # 1. DEFINING HISTORICAL DATES
+    # Historical dates: yesterday, day before yesterday, this is my understanding etc.
     historical_dates = [
         today_date - timedelta(days=offset)
         for offset in range(1, num_days_backfill + 1)
     ]
     
-    # 2. DEFINE FORECAST DATE RANGE
-    # Forecast starts today and goes forward 7 days
+    # 2. DEFINE FORECAST DATE RANGE FROM TODAY
+   
     forecast_start = today_date
     forecast_end = today_date + timedelta(days=FORECAST_DAYS)
     
@@ -186,12 +186,12 @@ def run_daily_feature_pipeline(num_days_backfill: int = 3):
     # 3. COLLECT HISTORICAL AIR QUALITY ROWS (One call per date needed for AQ CSV lookup)
     air_quality_rows = []
     for d in historical_dates:
-        # We only need AQ for historical days because forecast AQ is what we predict
+        # We only need AQ for historical days because forecast AQ is what we predict: NEED HELP WITH THIS: LLM
         air_quality_rows.append(get_air_quality_features_for_date(d))
         time.sleep(1) # Stability sleep
 
     # 4. COLLECT ALL WEATHER DATA (Historical + Forecast) in one large API call
-    # This is more robust than 90 individual calls
+    # This is more robust than 90 individual calls: USE LLM TO FIGURE THIS OUT: 
     all_weather_df = get_weather_features_for_range(
         start_date=historical_dates[-1], # Oldest historical date
         end_date=forecast_end             # Furthest forecast date
@@ -237,7 +237,7 @@ def run_daily_feature_pipeline(num_days_backfill: int = 3):
         event_time="date",
     )
 
-    # Insert data (multiple days at once)
+    # datset insertions
     print(
         f"\n Inserting {len(weather_features_df)} weather rows "
         f"into Feature Group 'weather' (Includes {FORECAST_DAYS} forecast days)..."
@@ -258,5 +258,5 @@ def run_daily_feature_pipeline(num_days_backfill: int = 3):
 # ENTRY POINT
 # ---------------------------------------------------------------------
 if __name__ == "__main__":
-    # Run the feature pipeline for 3 historical days + 7 forecast days
+    # Run the feature pipeline for 3 historical days + 7 forecast days: had to before but did changed it to 3. 
     run_daily_feature_pipeline(num_days_backfill=3)
