@@ -69,20 +69,23 @@ def load_model(mr):
     
     print("Model loaded successfully.")
     return trained_pipeline
-
-
+# this is AI generated as i could noit get it to work properly. 
 def get_forecast_features(fs):
     """
     Retrieves the future weather features for prediction from the Feature View.
-    We assume the daily feature pipeline has already pushed the 7-day forecast.
+    CRITICAL FIX: Forces date strings without time components to resolve Hopsworks format error.
     """
     print(f"Retrieving forecast features from Feature View {FEATURE_VIEW_NAME}...")
     
-    # Calculate the time range needed: from tomorrow to 7 days from now (inclusive)
-    # NOTE: We assume the feature pipeline pushed the forecast data for the next 7 days.
+    # Calculate the time range needed: starting from TOMORROW 
     today = pd.Timestamp(datetime.now().date())
-    start_time = today.isoformat()
-    end_time = (today + timedelta(days=FORECAST_DAYS)).isoformat() # +7 days for a 7-day forecast including today
+    
+    # FIX 1: Shift start time to TOMORROW and convert to simple date string (YYYY-MM-DD)
+    start_time = (today + timedelta(days=1)).date().isoformat()
+    
+    # FIX 2: Calculate the end time 7 days ahead and add two extra days for safety, 
+    # and convert to simple date string.
+    end_time = (today + timedelta(days=FORECAST_DAYS + 2)).date().isoformat() 
 
     fv = fs.get_feature_view(name=FEATURE_VIEW_NAME, version=FEATURE_VIEW_VERSION)
     
@@ -95,7 +98,7 @@ def get_forecast_features(fs):
 
     if feature_vector_df.empty:
         raise RuntimeError(
-            "No forecast features found in Feature View for the next 7 days. "
+            f"No forecast features found in Feature View for the range {start_time} to {end_time}. "
             "Ensure the feature pipeline pushed the 7-day forecast."
         )
 
@@ -111,6 +114,10 @@ def get_forecast_features(fs):
     
     # Select only the features the model needs (replicating the feature set from the training pipeline)
     X_forecast = feature_vector_df.loc[:, feature_columns]
+    
+    # Since we queried a larger window, we only take the 7 days needed for the prediction
+    X_forecast = X_forecast.head(FORECAST_DAYS)
+    forecast_dates = forecast_dates.head(FORECAST_DAYS)
     
     print(f"Retrieved {len(X_forecast)} forecast days.")
     return X_forecast, forecast_dates
