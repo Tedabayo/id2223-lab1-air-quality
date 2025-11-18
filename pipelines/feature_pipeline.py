@@ -341,4 +341,4 @@ def run_daily_feature_pipeline(num_days_backfill: int = 90):
 # ---------------------------------------------------------------------
 if __name__ == "__main__":
     # You can change the number of days here if you want
-    run_daily_feature_pipeline(num_days_backfill=90)
+    run_daily_feature_pipeline(num_days_backfill=3)
