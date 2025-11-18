@@ -95,7 +95,7 @@ def get_weather_features_for_date(input_date: date) -> pd.DataFrame:
     }
 
     # --- ADDED RETRY LOGIC (The definitive fix for GitHub timeouts) ---
-    max_retries = 5
+    max_retries = 10
     delay_seconds = 10 # Initial delay
 
     for attempt in range(max_retries):
